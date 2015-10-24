@@ -1,0 +1,148 @@
+---
+title: "Practical Machine Learning Project"
+subtitle: "Predicting Quality of Dummbell Lifting Exercices"
+author: "Eric LAMY"
+date: "October 2015"
+output: html_document
+---
+
+# Introduction
+
+The aim of this project is to create the best possible model to predict the quality (good or incorrect) of a serie of weight lifing exercices  performed by a sample of 20 users. For the purpose of elaborating this best model, we will use the data from the study entitled "Qualitative Activity Recognition of Weight Lifting Exercises" by E.Velloso and al. 
+
+# Model Creation
+
+## Data Exploration and Features selection
+
+The correctness of the execution of the lifting exercise is categorised by the following 5 classes:
+
+- Class A : exactly according to the specification
+
+- Class B : throwing the elbows to the front
+
+- Class C : lifting the dumbbell only halfway
+
+- Class D : lowering the dumbbell only halfway
+
+- Class E : throwing the hips to the front.
+
+```{r warning=FALSE, error=FALSE}
+# Required libraries
+library(caret)
+library(rattle)
+# Constants
+train.url = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv" 
+test.url = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+train.file = "./data/pml-training.csv"
+test.file = "./data/pml-testing.csv"
+# Set seed for reproducability
+set.seed(231457)
+# Creating directories required by the project
+if (!file.exists("data")){
+    dir.create("data")
+}
+# Directory to contain the files for the project submission.
+if (!file.exists("data/submission")){
+    dir.create("data/submission")
+}
+# Download project data
+setInternet2(TRUE)
+download.file(train.url, train.file)
+download.file(test.url, test.file)
+# Read data files
+train.raw = read.csv(train.file)
+test.raw = read.csv(test.file)
+dim(train.raw)
+```
+
+The data set is huge: 19622 observations of 160 variables. It appears also that the set contains a lot of missing ("" or NA) and "#DIV/0!" values.
+
+These variables have been eliminated as well as those that are of no interest (i.e. which are not related to quantity or measurement from the 4 sensors - arm, forearm, belt and dumbbell)
+
+```{r}
+filter = c("belt|forearm|arm|dumbbell")
+vars = grepl(filter, names(test.raw))
+train.data = train.raw[vars]
+# Keep only variables that have valid values
+valid=sapply(train.data, function (x) any(x == "#DIV/0!" | x == "" | is.na(x)))
+# Add 'classe' variable
+train.data = train.data[!valid]
+train.data = cbind(classe=train.raw$classe, train.data)
+```
+
+The following table lists the selected features for the model:
+
+```{r}
+names(train.data)
+```
+
+## Data partitioning - Cross validation
+
+The data set is then divided into two parts in order to train a model and to test it on a separate set.
+As the size of the data set is comfortable, I have choosen to split it with a 75:25 ratio (75% training and 25% testing).
+
+```{r}
+inTrain = createDataPartition(y=train.data$classe, p=0.75, list=FALSE)
+train.set = train.data[inTrain, ]
+test.set = train.data[-inTrain, ]
+```
+
+## Data Preprocessing
+
+To eliminate possible predictors that might be skewed and highly variable, I have choosen to normalise the data (i.e preprocessed by substracting the mean and dividing by the standard deviation). 
+
+## Best Model Selection
+
+### Linear Model
+
+From the outset this model is excluded because the outcome variable (classe) is a non-binary variable (5 classe factors).
+
+### Decision Tree
+
+```{r}
+model.dt.norm = train(classe ~ ., data=train.set, preProcess=c("center", "scale"), method="rpart")
+predict.dt.norm = predict(model.dt.norm, newdata=test.set)
+```
+
+The accuracy of this model is 
+```{r}
+round(confusionMatrix(predict.dt.norm, test.set$classe)$overall[[1]] *100,2)
+```
+
+As the correponding error rate is roughly 50 %, this model is eliminated.
+
+### Random Forest
+```{r}
+model.rf = train(classe ~ ., data=train.set, preProcess=c("center", "scale"), method="rf")
+model.rf$finalModel
+predict.rf = predict(model.rf, newdata=test.set)
+confusionMatrix(predict.rf, test.set$classe)
+
+```
+
+From the confusion matrix, we see that this model has an accuracy of 99,59% (with a 95% CI (0.9937, 09975)) and an error rate (1 - accuracy) of 0,41%.
+
+Therefore, it is the model that I have selected as final model to perform the prediction on the actual test set. 
+
+# Evaluation of the Final Model 
+
+## Out of sample error estimation 
+
+By definition, the expected out of sample error is calculated as 1 - accuracy of the predictions performed with the cross validation set.
+
+As calculated above, the expected out of sample error is estimated at 0.41%, which means that the model prediction is wrong roughly one every 200.
+
+With 20 cases in the actual test set, I expect that none will be rejected.
+
+## Prediction results on the sample of 20 users
+
+```{r}
+predict.subm = predict(model.rf, newdata=test.raw)
+predict.subm
+
+```
+
+# Conclusion
+
+To answer to the question on "How well a sample of 20 users performed dumbbell lifting exercises", we have seen that a Randow Forest predictive model answers it with an accuracy of 99,59 % and an out of sample error rate of 0.41% which far better compared to a decision tree model.
+
